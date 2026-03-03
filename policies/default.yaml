@@ -18,6 +18,8 @@ injection:
   risk_per_hit: 30   # score added per matched phrase
   base_score: 0
   block_threshold: 60  # block when score >= threshold (2 hits = 60 = BLOCK)
+  semantic_enabled: false
+  semantic_threshold: 80  # minimum semantic score (0-100) to flag PI-SEM-001
 
 dlp:
   # Plain-text keywords to detect and redact

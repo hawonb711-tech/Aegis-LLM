@@ -18,6 +18,8 @@ class InjectionPolicy(BaseModel):
     risk_per_hit: int
     base_score: int
     block_threshold: int
+    semantic_enabled: bool = False
+    semantic_threshold: int = 80
 
     @model_validator(mode="after")
     def check_threshold_positive(self) -> "InjectionPolicy":
@@ -25,6 +27,8 @@ class InjectionPolicy(BaseModel):
             raise ValueError("block_threshold must be > 0")
         if self.risk_per_hit < 0:
             raise ValueError("risk_per_hit must be >= 0")
+        if not (0 <= self.semantic_threshold <= 100):
+            raise ValueError("semantic_threshold must be in range 0-100")
         return self
 
 
@@ -90,7 +94,7 @@ def load_policy(path: Path) -> Policy:
     global _policy
     if not path.exists():
         raise FileNotFoundError(f"Policy file not found: {path}")
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
     if not isinstance(raw, dict):
         raise ValueError("Policy file must be a YAML mapping")
