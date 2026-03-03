@@ -8,7 +8,7 @@ import yaml
 from pathlib import Path
 from typing import List, Optional
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ── Sub-models ───────────────────────────────────────────────────────────────
@@ -78,10 +78,46 @@ class ToolsPolicy(BaseModel):
     http_fetch: ToolConfig
 
 
+class IncidentPolicy(BaseModel):
+    """
+    Parameters for the deterministic incident state machine.
+
+    Promotion to STRICT occurs when ANY of the promotion conditions are met
+    within the rolling window.  Demotion to NORMAL requires both the cooldown
+    period to elapse AND the stability window to be free of high-risk events.
+    """
+    # Rolling window for promotion counters (seconds).
+    window_seconds: int = 300
+    # Minimum risk_score to count an event as "high-risk".
+    high_risk_min: int = 60
+    # Promote when this many BLOCK decisions occur in the window.
+    promote_on_blocks: int = 3
+    # Promote when this many PI-001 / PI-SEM-001 events occur.
+    promote_on_pi_events: int = 2
+    # Promote when this many high-risk-score events occur.
+    promote_on_high_risk: int = 5
+    # Minimum time (seconds) in STRICT before demotion is considered.
+    cooldown_seconds: int = 600
+    # Demotion requires no high-risk events in this trailing window (seconds).
+    stability_window_seconds: int = 300
+
+    @model_validator(mode="after")
+    def check_positive(self) -> "IncidentPolicy":
+        for field_name in (
+            "window_seconds", "high_risk_min", "promote_on_blocks",
+            "promote_on_pi_events", "promote_on_high_risk",
+            "cooldown_seconds", "stability_window_seconds",
+        ):
+            if getattr(self, field_name) <= 0:
+                raise ValueError(f"IncidentPolicy.{field_name} must be > 0")
+        return self
+
+
 class Policy(BaseModel):
     injection: InjectionPolicy
     dlp: DLPPolicy
     tools: ToolsPolicy
+    incident: IncidentPolicy = Field(default_factory=IncidentPolicy)
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
@@ -112,7 +148,7 @@ def get_policy() -> Policy:
 # ── Mode management ───────────────────────────────────────────────────────────
 # 'strict' overrides tighten every control surface for incident response.
 _STRICT_OVERRIDES: dict = {
-    "injection": {"block_threshold": 30},          # 1 phrase hit → BLOCK
+    "injection": {"block_threshold": 30},          # 1 phrase hit -> BLOCK
     "dlp":       {"keyword_action": "redact"},      # redact (not block) — service-friendly
     "tools":     {"http_fetch": {"allowed_domains": []}},  # all outbound denied
 }
@@ -136,8 +172,8 @@ def set_active_mode(mode: str) -> None:
 def get_effective_policy() -> Policy:
     """
     Return the base policy with current-mode overrides applied.
-    'default' → base policy unchanged (no copy).
-    'strict'  → deep copy with tightened thresholds.
+    'default' -> base policy unchanged (no copy).
+    'strict'  -> deep copy with tightened thresholds.
     """
     base = get_policy()
     if _active_mode == "default":

@@ -65,3 +65,12 @@ tools:
       - "jsonplaceholder.typicode.com"
       - "api.github.com"
     deny_reason_code: "TOOL-001"
+
+incident:
+  window_seconds: 300          # rolling window for promotion counters
+  high_risk_min: 60            # risk_score threshold to count as "high risk"
+  promote_on_blocks: 3         # BLOCK decisions in window -> STRICT
+  promote_on_pi_events: 2      # PI-001/PI-SEM-001 hits in window -> STRICT
+  promote_on_high_risk: 5      # high-risk events in window -> STRICT
+  cooldown_seconds: 600        # minimum time in STRICT before demotion
+  stability_window_seconds: 300  # no high-risk events in this window -> demote
