@@ -134,6 +134,103 @@ export AZURE_OPENAI_API_VERSION="2024-05-01-preview"
 
 ---
 
+## CLI
+
+Aegis-LLM ships with a diagnostic command-line tool that validates your runtime
+environment before you start the gateway.
+
+### Installation
+
+```bash
+pip install -e .
+# The 'aegis' command is now on your PATH.
+```
+
+### `aegis doctor`
+
+Runs a series of health checks across four categories and prints a report with
+actionable fix suggestions.  Safe to run at any time — it never writes to the
+database or modifies files.
+
+```bash
+aegis doctor                          # human-readable report (default)
+aegis doctor --json                   # machine-readable JSON (CI-friendly)
+aegis doctor --verbose                # show metadata for every check
+aegis doctor --policy ./my-policy.yaml  # override the policy file path
+aegis doctor --env-file .env          # load .env variables before checking
+```
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0`  | All checks passed |
+| `1`  | Warnings present — non-fatal, but worth reviewing |
+| `2`  | Fatal errors detected — gateway will not start correctly |
+
+**Example output:**
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Aegis Doctor  v0.2.0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[ENV]
+  ✅  python-version    Python 3.12.3 on linux
+  ✅  filesystem-enc    UTF-8 (utf-8)
+  ✅  locale            Locale: 'C.UTF-8'
+  ✅  auth-enabled      AUTH_ENABLED=true
+  ⚠️   aegis-admin-key   AEGIS_ADMIN_KEY not set — no admin key bootstrapped
+                         Fix: export AEGIS_ADMIN_KEY=$(python3 -c "...")
+  ✅  mock-mode         MOCK_MODE=true (no real API calls)
+  ✅  rate-limit        RATE_LIMIT_RPM=60
+
+[POLICY]
+  ✅  policy-path     policies/default.yaml  (via default)
+  ✅  policy-exists   File exists
+  ✅  policy-utf8     File is valid UTF-8
+  ✅  policy-yaml     YAML parsed successfully
+  ✅  policy-schema   Pydantic schema valid
+  ✅  semantic-cfg    semantic_enabled=false
+
+[DATABASE]
+  ✅  db-dir-writable   Parent dir is writable
+  ✅  db-connect        SQLite connection OK (SELECT 1)
+  ✅  db-schema         Required tables present
+
+[IMPORT]
+  ✅  import-app   app.main imported without errors
+
+────────────────────────────────────────────────────
+  16 pass  |  1 warn  |  0 fail
+  Exit 1 — Warnings present — review the items above
+────────────────────────────────────────────────────
+```
+
+**Checks performed:**
+
+| Section | Check | What it validates |
+|---------|-------|-------------------|
+| ENV | `python-version` | Python >= 3.11 |
+| ENV | `filesystem-enc` | `sys.getfilesystemencoding()` is UTF-8 |
+| ENV | `locale` | LANG/LC_ALL is not an ASCII-only locale (`C`, `POSIX`) |
+| ENV | `auth-enabled` | `AUTH_ENABLED` is not false |
+| ENV | `aegis-admin-key` | `AEGIS_ADMIN_KEY` is set (value never printed) |
+| ENV | `mock-mode` | Azure credentials present when `MOCK_MODE=false` |
+| ENV | `rate-limit` | `RATE_LIMIT_RPM` is a positive integer |
+| POLICY | `policy-path` | Resolved path (env / flag / default) |
+| POLICY | `policy-exists` | File exists and is a regular file |
+| POLICY | `policy-utf8` | File readable as UTF-8 (guards against locale crashes) |
+| POLICY | `policy-yaml` | YAML parses without error |
+| POLICY | `policy-schema` | Pydantic schema validates |
+| POLICY | `semantic-cfg` | Semantic threshold in [0, 100] when enabled |
+| DATABASE | `db-dir-writable` | DB parent directory exists and is writable |
+| DATABASE | `db-connect` | SQLite `SELECT 1` succeeds |
+| DATABASE | `db-schema` | `audit_events` and `gateway_state` tables present |
+| IMPORT | `import-app` | `app.main` imports without raising |
+
+---
+
 ## 60-second demo
 
 Start the server first: `MOCK_MODE=true uvicorn app.main:app`
