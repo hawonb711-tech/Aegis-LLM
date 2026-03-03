@@ -1,0 +1,65 @@
+injection:
+  # Phrases that indicate prompt injection attempts
+  phrases:
+    - "ignore previous instructions"
+    - "ignore all previous"
+    - "forget your instructions"
+    - "disregard your system prompt"
+    - "you are now"
+    - "act as if"
+    - "pretend you are"
+    - "jailbreak"
+    - "override your instructions"
+    - "bypass your filters"
+    - "simulate being"
+    - "your new instructions are"
+    - "new persona"
+    - "developer mode"
+  risk_per_hit: 30   # score added per matched phrase
+  base_score: 0
+  block_threshold: 60  # block when score >= threshold (2 hits = 60 = BLOCK)
+
+dlp:
+  # Plain-text keywords to detect and redact
+  keywords:
+    - "PSH_SECRET"
+    - "api_key"
+    - "password"
+    - "secret_key"
+    - "private_key"
+    - "access_token"
+    - "bearer"
+  keyword_action: "redact"       # redact | block
+  keyword_reason_code: "DLP-001"
+
+  # Regex patterns with individual actions
+  patterns:
+    - name: "email"
+      regex: '[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+      action: "redact"
+      reason_code: "DLP-001"
+
+    - name: "kr_phone"
+      regex: '(\+82|0)[\s\-]?1[0-9][\s\-]?[0-9]{3,4}[\s\-]?[0-9]{4}'
+      action: "redact"
+      reason_code: "DLP-001"
+
+    - name: "secret_token"
+      # Matches uppercase token-like strings: PSH_SECRET_123, GITHUB_TOKEN_abc, etc.
+      regex: '\b[A-Z][A-Z0-9]{2,}_[A-Z0-9][A-Z0-9_]{2,}\b'
+      action: "redact"
+      reason_code: "DLP-002"
+
+    - name: "us_ssn"
+      regex: '\b\d{3}-\d{2}-\d{4}\b'
+      action: "block"
+      reason_code: "DLP-002"
+
+tools:
+  http_fetch:
+    allowed_domains:
+      - "api.example.com"
+      - "httpbin.org"
+      - "jsonplaceholder.typicode.com"
+      - "api.github.com"
+    deny_reason_code: "TOOL-001"
