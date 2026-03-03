@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+audit.db
+.env
+.venv/
+venv/
+dist/
+build/
+*.orig
+*.rej
