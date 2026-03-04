@@ -56,6 +56,19 @@ from app.ratelimit import limiter
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    ASGI lifespan handler — runs once on startup, yields, then runs on shutdown.
+
+    Startup order matters:
+      1. load_policy   — must run first; guards read policy on every request.
+      2. init_db       — creates / migrates audit_events + gateway_state tables.
+      3. init_auth_db  — creates api_keys table.
+      4. init_ratelimit_db — creates rate_limit_counters table.
+      5. init_incident_db  — creates incident_transitions table.
+      6. restore_state — reads incident_state from gateway_state (step 2 must be done).
+      7. set_active_mode — restores policy mode from gateway_state.
+      8. bootstrap_admin_key — seeds admin key from AEGIS_ADMIN_KEY env var if set.
+    """
     load_policy(config.POLICY_PATH)
 
     # Init all DB tables (idempotent; includes migration + backfill).
@@ -126,6 +139,13 @@ class ToolExecuteResponse(BaseModel):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _concat_messages(messages: List[Message]) -> str:
+    """
+    Concatenate all message contents into a single string for injection scoring.
+
+    All roles (user, system, assistant) are included so that injections embedded
+    in any turn of a multi-turn conversation are caught.  The injection guard
+    operates on this flattened text, not per-message.
+    """
     return " ".join(m.content for m in messages)
 
 

@@ -126,7 +126,19 @@ _policy: Optional[Policy] = None
 
 
 def load_policy(path: Path) -> Policy:
-    """Load and validate the policy YAML. Raises on any invalid configuration."""
+    """
+    Load and validate the policy YAML file into the module-level singleton.
+
+    Pydantic validates every field on construction.  Any structural, type, or
+    constraint violation (e.g. block_threshold <= 0, invalid regex, unknown
+    action string) raises before the function returns, causing the server to
+    refuse to start rather than run with a broken policy.
+
+    Raises:
+        FileNotFoundError: if *path* does not exist.
+        ValueError: if the YAML is not a mapping or a field fails validation.
+        yaml.YAMLError: if the file is not valid YAML.
+    """
     global _policy
     if not path.exists():
         raise FileNotFoundError(f"Policy file not found: {path}")
@@ -172,8 +184,15 @@ def set_active_mode(mode: str) -> None:
 def get_effective_policy() -> Policy:
     """
     Return the base policy with current-mode overrides applied.
-    'default' -> base policy unchanged (no copy).
-    'strict'  -> deep copy with tightened thresholds.
+
+    'default' — returns the base singleton unchanged (no allocation).
+    'strict'  — returns a deep copy of the base policy with _STRICT_OVERRIDES
+                applied: injection.block_threshold halved (60 → 30),
+                tools.http_fetch.allowed_domains cleared to [] (deny all egress).
+
+    Called on every request.  The deep copy for strict mode ensures that
+    overrides on one request do not bleed into concurrent requests that are
+    mid-pipeline with the base policy.
     """
     base = get_policy()
     if _active_mode == "default":
