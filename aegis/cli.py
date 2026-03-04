@@ -199,6 +199,92 @@ def doctor(
     raise typer.Exit(code=code)
 
 
+@_app.command()
+def simulate(
+    input_text: Optional[str] = typer.Option(
+        None,
+        "--input",
+        help="User text to simulate through the guard pipeline.",
+        show_default=False,
+    ),
+    file: Optional[Path] = typer.Option(
+        None,
+        "--file",
+        help=(
+            "JSONL transcript to simulate.  Each line must be "
+            '{"input":"..."} or {"role":"user","content":"..."}.'
+        ),
+        show_default=False,
+    ),
+    policy: Optional[Path] = typer.Option(
+        None,
+        "--policy",
+        help="Override policy file path (default: resolves the same way as the runtime).",
+        show_default=False,
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit machine-readable JSON to stdout.",
+    ),
+    explain_output: bool = typer.Option(
+        False,
+        "--explain",
+        help="Human-readable explanation (default when --json is not set).",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        help="Include meta fields and per-guard details in output.",
+    ),
+    env_file: Optional[Path] = typer.Option(
+        None,
+        "--env-file",
+        help="Load environment variables from a .env file before running.",
+        show_default=False,
+    ),
+) -> None:
+    """
+    Simulate the inbound guard pipeline on a given input, producing a
+    deterministic trace.  No network calls are made and no LLM is invoked.
+
+    Exactly one of --input or --file is required.
+
+    Exit codes: 0 = allow, 1 = warn/incident, 2 = block/fatal error.
+    """
+    if env_file:
+        _load_env_file(env_file)
+
+    if input_text is None and file is None:
+        typer.echo("Error: provide --input TEXT or --file PATH", err=True)
+        raise typer.Exit(code=2)
+
+    from aegis.simulate import load_inputs, run_simulation
+    from aegis.simulate import explain as _explain_sim
+
+    try:
+        inputs = load_inputs(input_text, file)
+    except (ValueError, FileNotFoundError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2)
+
+    try:
+        result = run_simulation(inputs, policy, verbose)
+    except FileNotFoundError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=2)
+    except Exception as exc:
+        typer.echo(f"Fatal error during simulation: {exc}", err=True)
+        raise typer.Exit(code=2)
+
+    if json_output:
+        typer.echo(_json_mod.dumps(result, indent=2))
+    else:
+        typer.echo(_explain_sim(result, verbose=verbose))
+
+    raise typer.Exit(code=result["exit_code"])
+
+
 def main() -> None:
     """Console-scripts entry point."""
     _app()
