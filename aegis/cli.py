@@ -150,6 +150,120 @@ def _load_env_file(path: Path) -> None:
 
 # ── Commands ──────────────────────────────────────────────────────────────────
 
+@_app.command(
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+def run(
+    ctx: typer.Context,
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Gateway host (must match the running aegis serve --host).",
+    ),
+    port: int = typer.Option(
+        8088,
+        "--port",
+        help="Gateway port (must match the running aegis serve --port).",
+    ),
+    base_path: str = typer.Option(
+        "/v1",
+        "--base-path",
+        help="API base path appended to host:port when building the base URL.",
+    ),
+    env_file: Optional[Path] = typer.Option(
+        None,
+        "--env-file",
+        help="Load environment variables from a .env file before running.",
+        show_default=False,
+    ),
+    print_env: bool = typer.Option(
+        False,
+        "--print-env",
+        help="Print POSIX export lines for injected vars, then exit 0 (no exec).",
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Print a JSON object describing injected env + command, then exit 0.",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        help="Print warnings to stderr (e.g., when a var is already set). "
+             "Secret values are never printed.",
+    ),
+) -> None:
+    """
+    Run a command with env vars injected to route OpenAI-compatible SDK
+    calls through the local Aegis gateway.
+
+    Usage: aegis run [OPTIONS] -- <cmd> [args...]
+
+    The injected vars are OPENAI_BASE_URL and OPENAI_API_BASE.
+    Existing values in the current environment are never overwritten.
+
+    Exit code equals the child process exit code (or 2 on fatal error).
+    """
+    # ── 1. Load env file BEFORE building the injected env ──────────────────
+    if env_file:
+        _load_env_file(env_file)
+
+    # ── 2. Parse remaining args; strip leading '--' separator if present ────
+    cmd_argv = list(ctx.args)
+    if cmd_argv and cmd_argv[0] == "--":
+        cmd_argv = cmd_argv[1:]
+
+    # ── 3. Build injected env (checks os.environ AFTER env-file load) ───────
+    import aegis.run_env as _run_env
+
+    injected, warnings = _run_env.build_injected_env(
+        host, port, base_path, os.environ
+    )
+
+    # ── 4. --print-env: output export lines and exit ─────────────────────
+    if print_env:
+        exports = _run_env.format_exports(injected)
+        if exports:
+            typer.echo(exports)
+        if warnings and verbose:
+            for w in warnings:
+                typer.echo(f"Warning: {w}", err=True)
+        raise typer.Exit(code=0)
+
+    # ── 5. --json: output config dict and exit ───────────────────────────
+    if json_output:
+        payload = _run_env.to_json_dict(cmd_argv, injected, warnings)
+        typer.echo(_json_mod.dumps(payload, indent=2))
+        raise typer.Exit(code=0)
+
+    # ── 6. Verbose warnings to stderr ────────────────────────────────────
+    if verbose:
+        for w in warnings:
+            typer.echo(f"Warning: {w}", err=True)
+
+    # ── 7. Require a command ─────────────────────────────────────────────
+    if not cmd_argv:
+        typer.echo(
+            "Error: no command provided.\n"
+            "Usage: aegis run [OPTIONS] -- <cmd> [args...]",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    # ── 8. Merge env and exec ────────────────────────────────────────────
+    merged_env = {**os.environ, **injected}
+    try:
+        child_code = _run_env.run_command(cmd_argv, merged_env)
+    except FileNotFoundError:
+        typer.echo(f"Error: command not found: {cmd_argv[0]!r}", err=True)
+        raise typer.Exit(code=2)
+    except Exception as exc:
+        typer.echo(f"Fatal: {exc}", err=True)
+        raise typer.Exit(code=2)
+
+    raise typer.Exit(code=child_code)
+
+
 @_app.command()
 def doctor(
     policy: Optional[Path] = typer.Option(
