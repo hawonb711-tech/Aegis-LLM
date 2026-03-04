@@ -200,6 +200,109 @@ def doctor(
 
 
 @_app.command()
+def serve(
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Network interface to bind (use 0.0.0.0 to expose externally).",
+    ),
+    port: int = typer.Option(
+        8088,
+        "--port",
+        help="TCP port to listen on.",
+    ),
+    reload: bool = typer.Option(
+        False,
+        "--reload",
+        help="Enable uvicorn auto-reload (development only; do not use in production).",
+    ),
+    log_level: str = typer.Option(
+        "info",
+        "--log-level",
+        help="Uvicorn log level (debug | info | warning | error | critical).",
+    ),
+    policy: Optional[Path] = typer.Option(
+        None,
+        "--policy",
+        help=(
+            "Override policy file path.  Sets POLICY_PATH env var before "
+            "the server imports app.config."
+        ),
+        show_default=False,
+    ),
+    env_file: Optional[Path] = typer.Option(
+        None,
+        "--env-file",
+        help="Load environment variables from a .env file before starting.",
+        show_default=False,
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help=(
+            "Print a JSON object describing what would run, then exit 0 "
+            "without starting the server.  Useful for CI and debugging."
+        ),
+    ),
+) -> None:
+    """
+    Start the Aegis-LLM gateway using uvicorn.
+
+    The server runs app.main:app (FastAPI) on the given host/port.
+    Set POLICY_PATH (or use --policy) to change the active policy file.
+
+    Exit codes: 0 success, 2 fatal (bad args, missing policy file, import error).
+    """
+    # ── Step 1: load env file BEFORE any app.* import ──────────────────────
+    if env_file:
+        _load_env_file(env_file)
+
+    # ── Step 2: apply policy override via POLICY_PATH env var ──────────────
+    # app/config.py reads POLICY_PATH at module import time, so this must be
+    # set before uvicorn triggers the import.
+    if policy is not None:
+        if not policy.exists():
+            typer.echo(f"Error: policy file not found: {policy}", err=True)
+            raise typer.Exit(code=2)
+        os.environ["POLICY_PATH"] = str(policy.resolve())
+
+    # Deferred import keeps serve.py out of the CLI module-level graph
+    # and makes main_run monkeypatchable in tests.
+    import aegis.serve as _serve_mod
+
+    app_import = _serve_mod.resolve_app_import()
+    resolved_policy = _serve_mod.resolve_policy_path(policy)
+
+    # ── Step 3: --json mode — describe config and exit without server ───────
+    if json_output:
+        payload = {
+            "host": host,
+            "port": port,
+            "reload": reload,
+            "log_level": log_level.lower(),
+            "app_import": app_import,
+            "policy_path_resolved": str(resolved_policy),
+        }
+        typer.echo(_json_mod.dumps(payload, indent=2))
+        raise typer.Exit(code=0)
+
+    # ── Step 4: start the server ────────────────────────────────────────────
+    try:
+        _serve_mod.main_run(
+            host=host,
+            port=port,
+            reload=reload,
+            log_level=log_level,
+            app_import=app_import,
+        )
+    except Exception as exc:
+        typer.echo(f"Fatal: server exited with error: {exc}", err=True)
+        raise typer.Exit(code=2)
+
+    raise typer.Exit(code=0)
+
+
+@_app.command()
 def simulate(
     input_text: Optional[str] = typer.Option(
         None,
