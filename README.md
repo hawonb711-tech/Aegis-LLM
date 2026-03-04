@@ -136,7 +136,7 @@ export AZURE_OPENAI_API_VERSION="2024-05-01-preview"
 
 ## CLI
 
-> **Under active development.** Currently available: `aegis doctor`, `aegis simulate`, `aegis serve`.
+> **Under active development.** Currently available: `aegis doctor`, `aegis simulate`, `aegis serve`, `aegis run`.
 > Additional commands (validate, policy tools, audit, etc.)
 > will be added incrementally.
 
@@ -157,6 +157,7 @@ aegis --help
 | `aegis doctor` | Stable | Environment / policy / database / import diagnostics |
 | `aegis simulate` | Stable | Offline guard-pipeline trace — no network, no LLM |
 | `aegis serve` | Stable | Start the gateway via uvicorn with consistent flags |
+| `aegis run` | Stable | Run a command with gateway env vars injected |
 
 ### `aegis doctor`
 
@@ -354,6 +355,59 @@ the reloader subprocess (`--reload`).
   "policy_path_resolved": "/path/to/policies/default.yaml"
 }
 ```
+
+### `aegis run`
+
+Run any command with `OPENAI_BASE_URL` and `OPENAI_API_BASE` pre-injected
+so that OpenAI-compatible SDKs route their calls through the local Aegis
+gateway instead of the upstream API.
+
+```bash
+# Basic usage — Python script
+aegis run -- python3 my_agent.py
+
+# Node.js
+aegis run -- node script.js
+
+# Custom host/port/path
+aegis run --host 0.0.0.0 --port 9000 --base-path /api/v2 -- python3 agent.py
+
+# Load extra env vars from .env before injecting (e.g., OPENAI_API_KEY)
+aegis run --env-file .env -- python3 my_agent.py
+
+# Preview POSIX export lines without running (useful for shell eval)
+aegis run --print-env
+# output:
+#   export OPENAI_BASE_URL='http://127.0.0.1:8088/v1'
+#   export OPENAI_API_BASE='http://127.0.0.1:8088/v1'
+
+# Or eval directly:
+eval "$(aegis run --print-env)"
+
+# Machine-readable JSON (CI debug)
+aegis run --json -- python3 agent.py
+
+# Warn when a var is already set (existing values are preserved)
+aegis run --verbose -- python3 agent.py
+```
+
+**Injected variables:**
+
+| Variable | Value |
+|----------|-------|
+| `OPENAI_BASE_URL` | `http://{host}:{port}{base_path}` |
+| `OPENAI_API_BASE` | same as above (legacy compat) |
+
+If either variable is already set in the environment it is **not**
+overwritten; a warning is emitted with `--verbose`.  Secret variables
+(`OPENAI_API_KEY`, tokens) are never read, printed, or modified.
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| child code | Forwarded from the executed command |
+| `2` | No command given, command not found, or fatal error |
 
 ---
 
