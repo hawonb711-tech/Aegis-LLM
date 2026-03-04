@@ -136,8 +136,8 @@ export AZURE_OPENAI_API_VERSION="2024-05-01-preview"
 
 ## CLI
 
-> **Under active development.** Currently available: `aegis doctor`, `aegis simulate`.
-> Additional commands (validate, policy tools, audit, daemon, etc.)
+> **Under active development.** Currently available: `aegis doctor`, `aegis simulate`, `aegis serve`.
+> Additional commands (validate, policy tools, audit, etc.)
 > will be added incrementally.
 
 Aegis-LLM ships a command-line tool installed as `aegis` after `pip install -e .`.
@@ -156,6 +156,7 @@ aegis --help
 |---------|--------|-------------|
 | `aegis doctor` | Stable | Environment / policy / database / import diagnostics |
 | `aegis simulate` | Stable | Offline guard-pipeline trace — no network, no LLM |
+| `aegis serve` | Stable | Start the gateway via uvicorn with consistent flags |
 
 ### `aegis doctor`
 
@@ -300,6 +301,58 @@ Suggested policy knobs:
 ────────────────────────────────────────────────────
   Exit 2  (1 item(s) evaluated)
 ────────────────────────────────────────────────────
+```
+
+### `aegis serve`
+
+Start the Aegis-LLM gateway using uvicorn.  This is a thin wrapper around
+`uvicorn app.main:app` that applies policy overrides and env-file loading
+in the correct order (before the server imports `app.config`).
+
+```bash
+# Start on default host/port (127.0.0.1:8088)
+aegis serve
+
+# Expose externally on port 8080
+aegis serve --host 0.0.0.0 --port 8080
+
+# Development mode with auto-reload
+aegis serve --reload --log-level debug
+
+# Override policy file
+aegis serve --policy ./policies/strict.yaml
+
+# Load environment from a .env file before starting
+aegis serve --env-file .env
+
+# Print config without starting the server (CI-friendly)
+aegis serve --json
+```
+
+**Policy override** — `--policy PATH` sets the `POLICY_PATH` environment
+variable before uvicorn starts, which is the mechanism `app/config.py`
+already supports.  The env var is set in the parent process so it is
+inherited by uvicorn whether running in-process (no `--reload`) or via
+the reloader subprocess (`--reload`).
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0`  | Server started and exited cleanly, or `--json` printed successfully |
+| `2`  | Fatal error — missing policy file, invalid arguments, or import failure |
+
+**`--json` example output:**
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 8088,
+  "reload": false,
+  "log_level": "info",
+  "app_import": "app.main:app",
+  "policy_path_resolved": "/path/to/policies/default.yaml"
+}
 ```
 
 ---
